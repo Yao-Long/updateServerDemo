@@ -8,6 +8,7 @@
 #include <QTcpSocket>
 #include <QHostAddress>
 #include <QFile>
+#include <QDateTime>
 
 namespace Ui {
 class MainWindow;
@@ -49,6 +50,8 @@ private:
     QTcpSocket *tcpConnectSocket;
 
     QTcpSocket  clientSocket;
+    int sendStatus = 0;
+    QDateTime fileLastModifyTime;
 
     QFile *file;
     qint64 headerLen;
@@ -56,10 +59,13 @@ private:
     qint64 restSize;
     qint64 sendSize;
 
+    QFile *recvFile;
     qint64  recvFileSize = 0;
     int  recvFileLen = 0;
+    QDateTime recvFileTime;
     QString recvFileName;
     qint64  recvSize = 0;
+    int recvStatus = 0;
 };
 
 #endif // MAINWINDOW_H

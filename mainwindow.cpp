@@ -5,8 +5,11 @@
 
 #include <QDebug>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QtGlobal>
+#include <QtEndian>
+#include <QDateTime>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -119,31 +122,101 @@ void MainWindow::onClientReadyRead(){
     clientRecvStr += array;
     ui->textEditClientReceive->setText(clientRecvStr);
 #else
-    QDataStream in(&clientSocket);
-    in.setVersion(QDataStream::Qt_5_12);
+//    QDataStream in(&clientSocket);
+//    in.setVersion(QDataStream::Qt_5_12);
 
 //    qint64  recvFileSize = 0;
 //    qint64  recvFileLen = 0;
 //    QString recvFileName;
 //    qint64  recvSize = 0;
 
-    if(recvFileSize == 0){
-        in >> recvFileSize;
-        qDebug()<<"recvFileSize "<<recvFileSize;
-    }
-    if(recvFileLen == 0){
-        in >> recvFileLen;
-        qDebug()<<"recvFileLen "<<recvFileLen;
-    }
-    if(recvFileName.isEmpty()){
-        in >> recvFileName;
-        qDebug()<<"recvFileName "<<recvFileName;
-    }
+//    if(recvFileSize == 0){
+//        in >> recvFileSize;
+//        qDebug()<<"recvFileSize "<<recvFileSize;
+//    }
+//    if(recvFileLen == 0){
+//        in >> recvFileLen;
+//        qDebug()<<"recvFileLen "<<recvFileLen;
+//    }
+//    if(recvFileName.isEmpty()){
+//        in >> recvFileName;
+//        qDebug()<<"recvFileName "<<recvFileName;
+//    }
 
 //    QFile *file = new QFile(recvFileName);
 //    if(!file->open(QFile::WriteOnly)) // 打开失败
 //    file->write(clientSocket.readAll());
-    clientSocket.readAll();
+//    clientSocket.readAll();
+//    QByteArray tmp = clientSocket.readAll();
+//    if(tmp.isEmpty()){
+//        qDebug()<<"clientSocket.readAll() error";
+//        return;
+//    }
+    QDataStream out(&clientSocket);
+    QString time;
+    QByteArray tmp;
+    qint64 len;
+    switch (recvStatus) {
+    case 0:
+        tmp = clientSocket.readAll();
+        recvFileName = QString(tmp);
+//        QDataStream out(&clientSocket);
+//        out>>recvFileName;
+//        QString xName = QString(tmp);
+//        qDebug()<<"客服端收到文件名:"<<recvFileName;
+        recvStatus = 1;
+        qDebug()<<"客服端收到文件名:"<<recvFileName;
+        break;
+    case 1:
+//        out.setByteOrder(QDataStream::BigEndian);
+        out>>len;
+        recvFileSize = qFromBigEndian(len);
+//        out>>recvFileSize;
+        qDebug()<<"客户端收到文件大小:"<<recvFileSize;
+        recvStatus = 2;
+        break;
+    case 2:
+        tmp = clientSocket.readAll();
+        time = QString(tmp);
+//        out>>time;
+        qDebug()<<"客户端收到文件时间:"<<time;
+        recvStatus = 3;
+        break;
+    case 3:
+        tmp = clientSocket.readAll();
+        if(tmp.isEmpty()){
+            qDebug()<<"clientSocket.readAll() error";
+            return;
+        }
+        recvSize += tmp.size();
+        ui->progressBar_2->setValue(recvSize * 100 / recvFileSize);
+        len = recvFile->write(tmp);
+        if(len == -1){
+            qDebug()<<"recvFile->write(tmp) error";
+            return;
+        }
+
+        if(recvSize == recvFileSize){
+            qDebug()<<"客户端接收文件完成";
+            clientSocket.deleteLater();
+            recvFile->close();
+        }
+
+        break;
+    default:
+        break;
+    }
+//    QByteArray tmp = clientSocket.readAll();
+//    if(tmp.isEmpty()){
+//        qDebug()<<"clientSocket.readAll() error";
+//        return;
+//    }
+//    qint64 len = recvFile->write(tmp);
+//    if(len == -1){
+//        qDebug()<<"recvFile->write(tmp) error";
+//        return;
+//    }
+
 
 #if 0
 
@@ -210,6 +283,12 @@ void MainWindow::onClientReadyRead(){
 
 void MainWindow::onClientStateChanged(QAbstractSocket::SocketState socketState){
     qDebug()<<"客服端状态改变为："<<socketState;
+//    if(socketState == QAbstractSocket::ConnectedState){
+//        QString saveFileName("xxxxxxx.exe");
+//        recvFile = new QFile(saveFileName);
+//        bool ret = recvFile->open(QIODevice::WriteOnly);
+//        qDebug()<<"recvFile->open(QIODevice::WriteOnly) = "<<ret;
+//    }
 }
 
 void MainWindow::on_pushButtonBuildServer_clicked()
@@ -249,6 +328,14 @@ void MainWindow::on_pushButtonConnectServer_clicked()
     connect(&clientSocket, SIGNAL(readyRead()), this, SLOT(onClientReadyRead()));
     connect(&clientSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)), this,
             SLOT(onClientStateChanged(QAbstractSocket::SocketState)));
+
+    QString saveFileName("xxxxxxx.exe");
+    recvFile = new QFile(saveFileName);
+    bool ret = recvFile->open(QIODevice::WriteOnly);
+    qDebug()<<"recvFile->open(QIODevice::WriteOnly) = "<<ret;
+
+
+    ui->progressBar_2->setRange(0, 100);
 }
 
 void MainWindow::on_pushButtonServerSend_clicked()
@@ -273,13 +360,14 @@ void MainWindow::on_pushButtonClientSend_clicked()
 
 void MainWindow::on_pushButton_clicked()
 {
-    QString fileName = "C:\\Users\\yaooolon\\Documents\\updateServerDemo\\VirtualBox-5.1.26-117224-Win.exe";
+    QString fileName = QFileDialog::getOpenFileName(this);
+//    QString fileName = "C:\\Users\\yaooolon\\Documents\\updateServerDemo\\VirtualBox-5.1.26-117224-Win.exe";
     file = new QFile(fileName);
 //    QFile file(fileName);
     qDebug()<<file->fileName();
     bool ret = file->open(QFile::ReadOnly);
     if(!ret){
-        qDebug()<<"open file failed";
+        qDebug()<<"open file failed"<<file->errorString();
         return;
     }
     restSize = fileSize = file->size();
@@ -297,18 +385,101 @@ void MainWindow::on_pushButton_clicked()
 
     QFileInfo fileInfo(fileName);
     QString fileNameShort= fileInfo.fileName();
-    qDebug()<<fileNameShort;
+    fileLastModifyTime = fileInfo.fileTime(QFileDevice::FileModificationTime);
+    qDebug()<<fileNameShort<<fileLastModifyTime;
 
 
-    out<<fileSize<<fileNameShort.length()<<fileNameShort;
-    headerLen = sizeof(fileSize) + sizeof(int) + fileNameShort.length();
+//    out<<fileSize<<fileNameShort.length()<<fileNameShort;
+//    headerLen = sizeof(fileSize) + sizeof(int) + fileNameShort.length();
 
-    tcpConnectSocket->write(buf);
+//    out<<fileNameShort;
+//    QDataStream fileIn(file);
+
+//    while (1) {
+//        qint64 readBlockSizeByte = 1024 * 1024 * 10;
+//        QByteArray tmp = file->read(readBlockSizeByte);
+//        if(tmp.isEmpty()){
+//            qDebug()<<"服务端发送文件完成";
+//            break;
+//        }
+//        tcpConnectSocket->write(tmp);
+//    }
+    QByteArray fileNameByteArray = fileNameShort.toUtf8();
+    tcpConnectSocket->write(fileNameByteArray);
+//    tcpConnectSocket->flush();
+    qDebug()<<"发送要传输的文件名"<<fileNameShort;
+
+//    qint64 tmpFileSize = qToBigEndian(fileSize);
+//    tcpConnectSocket->write((char *)&tmpFileSize, sizeof (tmpFileSize));
+//    tcpConnectSocket->flush();
+
+//    QByteArray fileTimeByteArray = fileLastModifyTime.toString().toUtf8();
+//    tcpConnectSocket->write(fileTimeByteArray);
+//    tcpConnectSocket->flush();
+
+//    qint64 readBlockSizeByte = 1024 * 1024 * 10;
+//    QByteArray tmp = file->read(readBlockSizeByte);
+//    tcpConnectSocket->write(tmp);
+
+
+//    QDataStream tcpOut(tcpConnectSocket);
+//    tcpOut<<fileNameShort;
+
+//    tcpConnectSocket->write(buf);
+//    tcpConnectSocket->flush();
 }
 
 
 void MainWindow::continue_transfer(qint64 size){
-    sendSize += size;
+    if(size == 0){
+        return;
+    }
+    QDataStream in(tcpConnectSocket);
+    if(sendStatus == 0){
+//        in.setByteOrder(QDataStream::BigEndian);
+        qint64 bigEndianFileSize = qToBigEndian(fileSize);
+
+        in<<bigEndianFileSize;
+//        qint64 tmpFileSize = qToBigEndian(fileSize);
+//        tcpConnectSocket->write((char *)&tmpFileSize, sizeof (tmpFileSize));
+        qDebug()<<"发送文件总大小";
+        sendStatus = 1;
+    }else if(sendStatus == 1) {
+        QByteArray fileTimeByteArray = fileLastModifyTime.toString().toUtf8();
+        tcpConnectSocket->write(fileTimeByteArray);
+        qDebug()<<"文件时间";
+        sendStatus = 2;
+    }else if (sendStatus == 2) {
+        qDebug()<<"开始传输文件内容";
+        qint64 readBlockSizeByte = 1024 * 1024 * 10;
+        QByteArray tmp = file->read(readBlockSizeByte);
+        tcpConnectSocket->write(tmp);
+        sendStatus = 3;
+    }else if (sendStatus == 3) {
+        sendSize += size;
+        ui->progressBar->setValue(sendSize * 100 / fileSize);
+        if(sendSize == fileSize){
+            qDebug()<<"文件发送完成";
+    //        tcpConnectSocket->close();
+    //        file->close();
+            return;
+        }
+
+
+        qint64 blockSize = 10 * 1024 * 1024;
+    //    qint64 readLen = restSize >= blockSize ? blockSize : restSize;
+        /* 从文件读数据 */
+        QByteArray buf = file->read(blockSize);
+        /* 发送 */
+        tcpConnectSocket->write(buf);
+    }
+
+
+
+
+
+   #if 0
+
     qint64 sendFileSize = sendSize - headerLen;
     if(sendFileSize > 0){
         ui->progressBar->setValue(sendFileSize * 100 / fileSize);
@@ -339,5 +510,5 @@ void MainWindow::continue_transfer(qint64 size){
         tcpConnectSocket->close();
     }
 
-
+#endif
 }
