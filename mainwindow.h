@@ -9,6 +9,7 @@
 #include <QHostAddress>
 #include <QFile>
 #include <QDateTime>
+#include <QHostInfo>
 
 namespace Ui {
 class MainWindow;
@@ -22,6 +23,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+    void sendFileToClient(QString fileName);
 protected slots:
     void onNewConnection();
     void onReadyRead();
@@ -32,6 +34,7 @@ protected slots:
     void onClientStateChanged(QAbstractSocket::SocketState socketState);
     void onTcpDisconnected();
     void continue_transfer(qint64 size);
+    void lookedUp(const QHostInfo &host);
 private slots:
     void on_pushButtonBuildServer_clicked();
 

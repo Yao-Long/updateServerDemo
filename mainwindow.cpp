@@ -10,6 +10,7 @@
 #include <QtGlobal>
 #include <QtEndian>
 #include <QDateTime>
+#include <QHostInfo>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -43,6 +44,70 @@ MainWindow::MainWindow(QWidget *parent) :
     }
     tcpConnectSocket = nullptr;
     ui->progressBar->setValue(0);
+
+    QIntValidator *intvalidator = new QIntValidator(1000, 65535);
+    ui->lineEditServerPort->setValidator(intvalidator);
+    ui->lineEditServerPort->setText(tr("7777"));
+
+    ui->lineEditConnectToServerPort->setValidator(intvalidator);
+    ui->lineEditConnectToServerPort->setText(tr("42662"));
+
+    ui->lineEditServerName->setText(tr("27v241o078.qicp.vip"));
+
+
+    ui->textEditClientSend->setText(tr("\\downloadTestFile"));
+}
+
+void MainWindow::lookedUp(const QHostInfo &host){
+    if (host.error() != QHostInfo::NoError) {
+        qDebug() << "Lookup failed:" << host.errorString();
+        return;
+    }
+
+    const auto addresses = host.addresses();
+    for (const QHostAddress &address : addresses)
+        qDebug() << "Found address:" << address.toString();
+
+
+
+    QString addrStr = host.addresses()[0].toString();
+
+    QHostAddress addr(addrStr);
+    int port = ui->lineEditConnectToServerPort->text().toInt();
+    if(port < 1000 || port > 65535){
+        qDebug()<<"客户端连接服端的端口不合法"<<port;
+        return;
+    }
+    clientSocket.connectToHost(addr, port);
+    connect(&clientSocket, SIGNAL(readyRead()), this, SLOT(onClientReadyRead()));
+    connect(&clientSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)), this,
+            SLOT(onClientStateChanged(QAbstractSocket::SocketState)));
+
+    QString saveFileName("xxxxxxx.exe");
+    recvFile = new QFile(saveFileName);
+    bool ret = recvFile->open(QIODevice::WriteOnly);
+    qDebug()<<"recvFile->open(QIODevice::WriteOnly) = "<<ret;
+
+
+    ui->progressBar_2->setRange(0, 100);
+
+#if 0
+    QHostAddress addr(addrStr);
+    //    quint16 port = 7778;
+    int port = ui->lineEditServerPort->text().toInt();
+    if(port < 1000 || port > 65536){
+        qDebug()<<"服务器端口号不合法"<<port;
+        return;
+    }
+    qDebug()<<"服务器监听 "<<addr<<port;
+    bool ret = tcpServer->listen(addr, port);
+    if(!ret){
+        qDebug()<<"tcpServer->listen error";
+        return;
+    }
+    qDebug()<<tcpServer->errorString();
+    connect(tcpServer, SIGNAL(newConnection()), this, SLOT(onNewConnection()));
+#endif
 }
 
 MainWindow::~MainWindow()
@@ -70,25 +135,127 @@ void MainWindow::onNewConnection(){
 
 
     /* 连接已建立 -> 开始发数据 */
-    connect(tcpConnectSocket, SIGNAL(connected()),
-            this, SLOT(start_transfer()));
+//    connect(tcpConnectSocket, SIGNAL(connected()),
+//            this, SLOT(start_transfer()));
     /* 数据已发出 -> 继续发 */
     connect(tcpConnectSocket, SIGNAL(bytesWritten(qint64)),
             this, SLOT(continue_transfer(qint64)));
     /* socket出错 -> 错误处理 */
-    connect(tcpConnectSocket, SIGNAL(error(QAbstractSocket::SocketError)),
-            this, SLOT(show_error(QAbstractSocket::SocketError)));
+//    connect(tcpConnectSocket, SIGNAL(error(QAbstractSocket::SocketError)),
+//            this, SLOT(show_error(QAbstractSocket::SocketError)));
+}
+
+void MainWindow::sendFileToClient(QString fileName){
+    file = new QFile(fileName);
+//    qDebug()<<file->fileName();
+    bool ret = file->open(QFile::ReadOnly);
+    if(!ret){
+        qDebug()<<"open file failed"<<file->errorString();
+        return;
+    }
+    restSize = fileSize = file->size();
+    qDebug()<<"fileSize = "<<fileSize;
+
+//    ui->progressBar->setRange(0, 100);
+//    ui->progressBar->setValue(0);
+    sendSize = 0;
+
+//    QByteArray buf;
+//    QDataStream out(&buf, QIODevice::WriteOnly);
+    //    qDebug()<<out.version();
+//    out.setVersion(QDataStream::Qt_5_12);
+    //    qDebug()<<out.version();
+
+    QFileInfo fileInfo(fileName);
+    QString fileNameShort= fileInfo.fileName();
+    fileLastModifyTime = fileInfo.fileTime(QFileDevice::FileModificationTime);
+    qDebug()<<"短文件名 "<<fileNameShort<<"文件最后修改时间"<<fileLastModifyTime;
+
+
+    //    out<<fileSize<<fileNameShort.length()<<fileNameShort;
+    //    headerLen = sizeof(fileSize) + sizeof(int) + fileNameShort.length();
+
+    //    out<<fileNameShort;
+    //    QDataStream fileIn(file);
+
+    //    while (1) {
+    //        qint64 readBlockSizeByte = 1024 * 1024 * 10;
+    //        QByteArray tmp = file->read(readBlockSizeByte);
+    //        if(tmp.isEmpty()){
+    //            qDebug()<<"服务端发送文件完成";
+    //            break;
+    //        }
+    //        tcpConnectSocket->write(tmp);
+    //    }
+//    QByteArray fileNameByteArray = fileNameShort.toUtf8();
+//    QByteArray fileNameByteArray = fileNameShort.toLatin1();
+//    tcpConnectSocket->write(fileNameByteArray);
+    //    tcpConnectSocket->flush();
+//    qDebug()<<"发送要传输的文件名"<<fileNameShort<<"utf8:"<<fileNameByteArray;
+
+    QDataStream in(tcpConnectSocket);
+    fileNameShort += tr("测试文件");
+    in<<fileNameShort;
+
 }
 
 void MainWindow::onReadyRead(){
     QByteArray d = tcpConnectSocket->readAll();
-    QString serverRecvStr = ui->textEditServerReceive->toPlainText();
-    serverRecvStr += "\n";
-    serverRecvStr += tcpConnectSocket->peerAddress().toString();
-    QString portStr = QString::asprintf(":%u:\n", tcpConnectSocket->peerPort());
-    serverRecvStr += portStr;
-    serverRecvStr += d;
-    ui->textEditServerReceive->setText(serverRecvStr);
+//    QString serverRecvStr = ui->textEditServerReceive->toPlainText();
+//    serverRecvStr += "\n";
+//    serverRecvStr += tcpConnectSocket->peerAddress().toString();
+//    QString portStr = QString::asprintf(":%u:\n", tcpConnectSocket->peerPort());
+//    serverRecvStr += portStr;
+//    serverRecvStr += d;
+//    ui->textEditServerReceive->setText(serverRecvStr);
+
+    QString recvStr(d);
+    QDataStream in(tcpConnectSocket);
+    qDebug()<<"服务器端收到数据字符串:"<<recvStr;
+    if(recvStr == tr("\\downloadTestFile")){
+        qDebug()<<"服务器端开始发送数据给客户端";
+        sendFileToClient(tr("F:/github_repo/updateServerDemo/main.cpp"));
+    }else if(recvStr == tr("\\downloadFileFinished")){
+        qDebug()<<"服务器端收到客户端接收文件完成响应";
+    }else if (recvStr == tr("\\recvFileNameFinished")) {
+        qint64 bigEndianFileSize = qToBigEndian(fileSize);
+        in<<bigEndianFileSize;
+        qDebug()<<"发送文件总大小:"<<fileSize<<"bigendian:"<<bigEndianFileSize;
+    }else if (recvStr == tr("\\recvFileSizeFinished")) {
+        in<<fileLastModifyTime;
+        qDebug()<<"文件时间:"<<fileLastModifyTime;
+    }else if (recvStr == tr("\\recvFileTimeFinished")) {
+        qDebug()<<"开始传输文件内容";
+        qint64 readBlockSizeByte = 1024 * 1024 * 10;
+        QByteArray tmp = file->read(readBlockSizeByte);
+        tcpConnectSocket->write(tmp);
+        qDebug()<<"发送文件数据大小:"<<tmp.size();
+    }else if(recvStr.isEmpty()){
+        if(sendStatus == 0){
+            qint64 bigEndianFileSize = qToBigEndian(fileSize);
+            in<<bigEndianFileSize;
+            qDebug()<<"发送文件总大小:"<<fileSize<<"bigendian:"<<bigEndianFileSize;
+            sendStatus = 1;
+        }else if(sendStatus == 1) {
+            //        QByteArray fileTimeByteArray = fileLastModifyTime.toString().toUtf8();
+            //        tcpConnectSocket->write(fileTimeByteArray);
+            //        qDebug()<<"文件时间:"<<fileTimeByteArray;
+            in<<fileLastModifyTime;
+            qDebug()<<"文件时间:"<<fileLastModifyTime;
+            sendStatus = 2;
+        }else if (sendStatus == 2) {
+            qDebug()<<"开始传输文件内容";
+            qint64 readBlockSizeByte = 1024 * 1024 * 10;
+            QByteArray tmp = file->read(readBlockSizeByte);
+            tcpConnectSocket->write(tmp);
+            qDebug()<<"发送文件数据大小:"<<tmp.size();
+            sendStatus = 3;
+        }
+    }
+
+
+
+
 }
 
 
@@ -153,36 +320,46 @@ void MainWindow::onClientReadyRead(){
 //        return;
 //    }
     QDataStream out(&clientSocket);
-    QString time;
+    QDateTime time;
     QByteArray tmp;
     qint64 len;
+    QDataStream in(&clientSocket);
     switch (recvStatus) {
     case 0:
-        tmp = clientSocket.readAll();
-        recvFileName = QString(tmp);
+//        tmp = clientSocket.readAll();
+
+//        recvFileName = QString(tmp);
 //        QDataStream out(&clientSocket);
-//        out>>recvFileName;
+        out>>recvFileName;
 //        QString xName = QString(tmp);
 //        qDebug()<<"客服端收到文件名:"<<recvFileName;
         recvStatus = 1;
-        qDebug()<<"客服端收到文件名:"<<recvFileName;
+        qDebug()<<"客服端收到文件名:"<<recvFileName<<"tmp:"<<tmp;
+
+        in<<tr("\\recvFileNameFinished");
+
         break;
     case 1:
 //        out.setByteOrder(QDataStream::BigEndian);
         out>>len;
         recvFileSize = qFromBigEndian(len);
 //        out>>recvFileSize;
-        qDebug()<<"客户端收到文件大小:"<<recvFileSize;
+        qDebug()<<"客户端收到文件大小:"<<recvFileSize<<"len:"<<len;
         recvStatus = 2;
+
+        in<<tr("\\recvFileSizeFinished");
+
         break;
     case 2:
-        tmp = clientSocket.readAll();
-        time = QString(tmp);
-//        out>>time;
-        qDebug()<<"客户端收到文件时间:"<<time;
+//        tmp = clientSocket.readAll();
+//        time = QString(tmp);
+        out>>time;
+        qDebug()<<"客户端收到文件时间:"<<time<<"tmp:"<<tmp;
         recvStatus = 3;
+        in<<tr("\\recvFileTimeFinished");
         break;
     case 3:
+        qDebug()<<"客户端开始接收文件内容";
         tmp = clientSocket.readAll();
         if(tmp.isEmpty()){
             qDebug()<<"clientSocket.readAll() error";
@@ -198,8 +375,9 @@ void MainWindow::onClientReadyRead(){
 
         if(recvSize == recvFileSize){
             qDebug()<<"客户端接收文件完成";
-            clientSocket.deleteLater();
+//            clientSocket.deleteLater();
             recvFile->close();
+            in<<tr("\\downloadFileFinished");
         }
 
         break;
@@ -301,18 +479,30 @@ void MainWindow::on_pushButtonBuildServer_clicked()
     if(tcpServer->isListening()){
         tcpServer->close();
     }
-
+#if 1
     QString addrStr = ui->comboBox->currentText();
+#else
+    QString addrStr = ui->lineEditServerName->text();
+    QHostInfo::lookupHost(addrStr, this, SLOT(lookedUp(QHostInfo)));
+#endif
+#if 1
+
     QHostAddress addr(addrStr);
-    quint16 port = 8080;
+//    quint16 port = 7778;
+    int port = ui->lineEditServerPort->text().toInt();
+    if(port < 1000 || port > 65536){
+        qDebug()<<"服务器端口号不合法"<<port;
+        return;
+    }
     qDebug()<<"服务器监听 "<<addr<<port;
     bool ret = tcpServer->listen(addr, port);
     if(!ret){
         qDebug()<<"tcpServer->listen error";
         return;
     }
-    qDebug()<<tcpServer->errorString();
+//    qDebug()<<"开始监听"<<addr<<"端口 "<<port;
     connect(tcpServer, SIGNAL(newConnection()), this, SLOT(onNewConnection()));
+#endif
 }
 
 void MainWindow::on_pushButtonConnectServer_clicked()
@@ -323,8 +513,12 @@ void MainWindow::on_pushButtonConnectServer_clicked()
 //    if(clientSocket.state() != QAbstractSocket::UnconnectedState){
 //        clientSocket.close();
 //    }
+    QString addrStr = ui->lineEditServerName->text();
+    QHostInfo::lookupHost(addrStr, this, SLOT(lookedUp(QHostInfo)));
+
+#if 0
     QHostAddress addr(ui->comboBoxClient->currentText());
-    clientSocket.connectToHost(addr, 8080);
+    clientSocket.connectToHost(addr, 7778);
     connect(&clientSocket, SIGNAL(readyRead()), this, SLOT(onClientReadyRead()));
     connect(&clientSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)), this,
             SLOT(onClientStateChanged(QAbstractSocket::SocketState)));
@@ -336,6 +530,7 @@ void MainWindow::on_pushButtonConnectServer_clicked()
 
 
     ui->progressBar_2->setRange(0, 100);
+#endif
 }
 
 void MainWindow::on_pushButtonServerSend_clicked()
@@ -361,6 +556,9 @@ void MainWindow::on_pushButtonClientSend_clicked()
 void MainWindow::on_pushButton_clicked()
 {
     QString fileName = QFileDialog::getOpenFileName(this);
+    qDebug()<<fileName;
+//    return;"F:/github_repo/updateServerDemo/mainwindow.cpp"
+
 //    QString fileName = "C:\\Users\\yaooolon\\Documents\\updateServerDemo\\VirtualBox-5.1.26-117224-Win.exe";
     file = new QFile(fileName);
 //    QFile file(fileName);
@@ -431,10 +629,35 @@ void MainWindow::on_pushButton_clicked()
 
 
 void MainWindow::continue_transfer(qint64 size){
+//    return;
     if(size == 0){
         return;
     }
     QDataStream in(tcpConnectSocket);
+
+    if (sendStatus == 3) {
+        sendSize += size;
+        ui->progressBar->setValue(sendSize * 100 / fileSize);
+        if(sendSize == fileSize){
+            qDebug()<<"文件发送完成";
+            //            tcpConnectSocket->close();
+            tcpConnectSocket->flush();
+
+            file->close();
+            return;
+        }
+
+
+        qint64 blockSize = 10 * 1024 * 1024;
+        //    qint64 readLen = restSize >= blockSize ? blockSize : restSize;
+        /* 从文件读数据 */
+        QByteArray buf = file->read(blockSize);
+        /* 发送 */
+        tcpConnectSocket->write(buf);
+    }
+    return;
+
+
     if(sendStatus == 0){
 //        in.setByteOrder(QDataStream::BigEndian);
         qint64 bigEndianFileSize = qToBigEndian(fileSize);
@@ -442,26 +665,31 @@ void MainWindow::continue_transfer(qint64 size){
         in<<bigEndianFileSize;
 //        qint64 tmpFileSize = qToBigEndian(fileSize);
 //        tcpConnectSocket->write((char *)&tmpFileSize, sizeof (tmpFileSize));
-        qDebug()<<"发送文件总大小";
+        qDebug()<<"发送文件总大小:"<<fileSize<<"bigendian:"<<bigEndianFileSize;
         sendStatus = 1;
     }else if(sendStatus == 1) {
-        QByteArray fileTimeByteArray = fileLastModifyTime.toString().toUtf8();
-        tcpConnectSocket->write(fileTimeByteArray);
-        qDebug()<<"文件时间";
+//        QByteArray fileTimeByteArray = fileLastModifyTime.toString().toUtf8();
+//        tcpConnectSocket->write(fileTimeByteArray);
+//        qDebug()<<"文件时间:"<<fileTimeByteArray;
+        in<<fileLastModifyTime;
+        qDebug()<<"文件时间:"<<fileLastModifyTime;
         sendStatus = 2;
     }else if (sendStatus == 2) {
         qDebug()<<"开始传输文件内容";
         qint64 readBlockSizeByte = 1024 * 1024 * 10;
         QByteArray tmp = file->read(readBlockSizeByte);
         tcpConnectSocket->write(tmp);
+        qDebug()<<"发送文件数据大小:"<<tmp.size();
         sendStatus = 3;
     }else if (sendStatus == 3) {
         sendSize += size;
         ui->progressBar->setValue(sendSize * 100 / fileSize);
         if(sendSize == fileSize){
             qDebug()<<"文件发送完成";
-    //        tcpConnectSocket->close();
-    //        file->close();
+//            tcpConnectSocket->close();
+            tcpConnectSocket->flush();
+
+            file->close();
             return;
         }
 
